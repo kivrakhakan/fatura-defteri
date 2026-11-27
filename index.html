@@ -77,7 +77,8 @@ button{cursor:pointer}
 .uyari span{display:block;margin-top:6px;font-weight:700;text-decoration:underline}
 .rozetizin{display:block;width:calc(100% - 32px);margin:4px 16px 10px;border:1px solid var(--cizgi);border-radius:10px;background:var(--zemin);padding:10px 12px;font-size:14px;text-align:left;color:var(--soluk)}
 .ana.gri{background:var(--zemin);color:var(--murekkep);border:1px solid var(--cizgi)}
-#vergiDugmeler{margin-bottom:12px}
+#vergiDugmeler{margin-bottom:10px}
+#duzenleBtn{margin-bottom:10px}
 .sekme::before{content:"";width:10px;height:10px;border-radius:3px;background:var(--renk)}
 .sekme[aria-selected="true"]{background:var(--kagit);color:var(--murekkep)}
 .sekme .say{font-weight:500;color:var(--soluk);font-size:14px;font-variant-numeric:tabular-nums}
@@ -218,6 +219,7 @@ dialog[open]{animation:cik .22s ease-out}
   <div class="goruntu" id="gorIcerik"></div>
   <dl class="bilgi" id="gorBilgi"></dl>
   <div id="vergiDugmeler" hidden></div>
+  <button class="ana gri genis" id="duzenleBtn">Düzenle</button>
   <button class="sil" id="silBtn">Bu kaydı sil</button>
 </div></dialog>
 

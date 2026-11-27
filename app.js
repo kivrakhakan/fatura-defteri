@@ -306,7 +306,37 @@ const tuvalBlob = (c, q) => new Promise(ok => c.toBlob(ok, 'image/jpeg', q));
 let secilen = null; // {veri:ArrayBuffer, tip, ad, kucuk}
 let ekleKlasor = 'fatura';
 
+let duzenlenen = null;   // düzenlenen kayıt (yeni eklemede null)
+
+/* Var olan kaydı ekleme formunda doldurup açar */
+function duzenleAc(k) {
+  $('#gorP').close();
+  ekleAc(k.klasor === 'z' ? 'Z raporu' : takipMi(k.klasor) ? k.klasor : k.tur);
+  duzenlenen = k;
+  $('#ekleBaslik').textContent = 'Düzenle';
+  $('#kaydet').textContent = 'Değişiklikleri kaydet';
+  const sec = $('#tur');
+  if (k.klasor !== 'z') {
+    if ([...sec.options].some(o => o.value === k.tur)) sec.value = k.tur;
+    else { sec.value = DIGER; $('#digerAd').value = k.tur; }
+    $('#digerAlan').hidden = sec.value !== DIGER;
+  }
+  $('#tutar').value = k.tutar != null ? sayiBicim.format(k.tutar) : '';
+  $('#tarih').value = k.tarih;
+  $('#notAlan').value = k.not || '';
+  if (k.veri) {
+    secilen = {veri: k.veri, tip: k.tip, ad: k.ad, kucuk: k.kucuk};
+    const on = $('#onizleme');
+    on.hidden = false; on.style.flexDirection = k.tip === 'application/pdf' ? '' : 'column';
+    on.innerHTML = (k.tip === 'application/pdf' ? `<div class="pdfad" style="flex:1">📄 ${kacis(k.ad || 'PDF')}</div>` : `<img src="${blobUrl(k)}" alt="Kayıtlı fotoğraf">`) +
+      '<button type="button" data-degistir>Fotoğrafı ya da dosyayı değiştir</button>';
+    $('#secim').hidden = true;
+  }
+}
+
 function ekleAc(tur) {
+  duzenlenen = null;
+  $('#kaydet').textContent = 'Kaydet';
   ekleKlasor = tur === 'Z raporu' ? 'z' : takipMi(tur) ? tur : 'fatura';
   const vergi = ekleKlasor === 'vergi', serkan = ekleKlasor === 'serkan';
   secilen = null;
@@ -381,13 +411,12 @@ async function kaydet(e) {
   if (Number.isNaN(tutar)) { hataP.textContent = 'Tutarı yalnızca rakamla yazın, örneğin 1.250,40'; $('#tutar').focus(); return; }
   if (takipMi(ekleKlasor) && !$('#tarih').value) { hataP.textContent = 'Son ödeme tarihini seçin.'; $('#tarih').focus(); return; }
   const tarih = $('#tarih').value || `${ay}-01`;
-  const k = {
-    id: (crypto.randomUUID ? crypto.randomUUID() : Date.now() + '-' + Math.random()),
-    ay, klasor: ekleKlasor, tur, tutar, tarih, not: $('#notAlan').value.trim(),
-    veri: secilen ? secilen.veri : null, tip: secilen ? secilen.tip : null, ad: secilen ? secilen.ad : null,
-    kucuk: secilen ? secilen.kucuk : null, eklendi: Date.now(),
-    odendi: null
-  };
+  const dosya = {veri: secilen ? secilen.veri : null, tip: secilen ? secilen.tip : null, ad: secilen ? secilen.ad : null, kucuk: secilen ? secilen.kucuk : null};
+  const k = duzenlenen
+    // Düzenleme: kimlik, ay, ödendi bilgisi aynı kalır; aylık ödemenin günü yeni tarihe göre güncellenir
+    ? {...duzenlenen, tur, tutar, tarih, not: $('#notAlan').value.trim(), ...dosya,
+       odemeGunu: duzenlenen.klasor === 'serkan' ? +tarih.slice(8, 10) : duzenlenen.odemeGunu}
+    : {id: yeniId(), ay, klasor: ekleKlasor, tur, tutar, tarih, not: $('#notAlan').value.trim(), ...dosya, eklendi: Date.now(), odendi: null};
   $('#kaydet').disabled = true;
   try {
     await kayitYaz(k);
@@ -610,6 +639,7 @@ $('#dosyaSec').addEventListener('change', e => { dosyaGeldi(e.target.files[0]); 
 $('#tur').addEventListener('change', e => { $('#digerAlan').hidden = e.target.value !== DIGER; if (e.target.value === DIGER) $('#digerAd').focus(); });
 $('#ekleForm').addEventListener('submit', kaydet);
 $('#silBtn').addEventListener('click', sil);
+$('#duzenleBtn').addEventListener('click', () => { if (gorulen) duzenleAc(gorulen); });
 $('#gonderBtn').addEventListener('click', gonderAc);
 $('#geri').addEventListener('click', () => { ay = ayKaydir(ay, -1); yenile(); });
 $('#ileri').addEventListener('click', () => { ay = ayKaydir(ay, 1); yenile(); });
