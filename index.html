@@ -14,7 +14,7 @@
 :root{
   --zemin:#E6EBF0; --kagit:#FFFFFF; --murekkep:#16202B; --soluk:#5A6675; --cizgi:#D2D9E0;
   --mavi:#2B59A3; --mavi-acik:#E3EBF7; --sari:#E2AC07; --sari-acik:#FBF1D2;
-  --kirmizi:#B3261E; --yesil:#1D7548;
+  --kirmizi:#B3261E; --yesil:#1D7548; --turuncu:#B25E00; --mor:#6A4C9C; --mor-acik:#EEE8F6; --camgobegi:#14727A; --camgobegi-acik:#E1F1F2;
   --yazi:-apple-system,"SF Pro Text",system-ui,"Segoe UI",Roboto,sans-serif;
   color-scheme:light;
 }
@@ -22,7 +22,7 @@
   :root{
     --zemin:#0F141A; --kagit:#1A2129; --murekkep:#E8EDF2; --soluk:#94A0AE; --cizgi:#2C3540;
     --mavi:#6E9BE6; --mavi-acik:#1E2B40; --sari:#F0C02E; --sari-acik:#3A3115;
-    --kirmizi:#F2867E; --yesil:#5CC48D; color-scheme:dark;
+    --kirmizi:#F2867E; --yesil:#5CC48D; --turuncu:#F0A54A; --mor:#B39DDB; --mor-acik:#2A2338; --camgobegi:#5EC4CC; --camgobegi-acik:#16302F; color-scheme:dark;
   }
 }
 *{box-sizing:border-box}
@@ -53,8 +53,31 @@ button{cursor:pointer}
 .serit button{border:0;background:none;color:var(--mavi);font-weight:600;padding:6px 0 0}
 
 /* Klasör sekmeleri */
-.sekmeler{display:flex;gap:6px;padding-left:10px}
-.sekme{position:relative;border:0;padding:10px 16px 9px;border-radius:12px 12px 0 0;background:transparent;color:var(--soluk);font-weight:600;font-size:16px;display:flex;align-items:center;gap:8px}
+.sekmeler{display:grid;grid-template-columns:repeat(4,1fr);gap:3px}
+.sekme{position:relative;border:0;border-top:3px solid var(--renk);padding:11px 2px 9px;border-radius:10px 10px 0 0;background:color-mix(in srgb,var(--kagit) 45%,transparent);color:var(--soluk);font-weight:600;font-size:14.5px;white-space:nowrap;text-align:center}
+.sekme::before{display:none}
+.sekme .say{position:absolute;top:-9px;right:2px;font-size:11.5px;line-height:17px;min-width:17px;padding:0 5px;border-radius:9px;background:var(--kagit);border:1px solid var(--cizgi);color:var(--soluk)}
+.sekme .say:empty{display:none}
+.sekme.s{--renk:var(--camgobegi)} .klasor.s{--renk:var(--camgobegi)}
+.klasor.s .zbuyuk{border-color:var(--camgobegi);background:var(--camgobegi-acik)}
+.sekme .say.acil{color:#fff;background:#B3261E;border-color:#B3261E;font-weight:700}
+.sekme.v{--renk:var(--mor)} .klasor.v{--renk:var(--mor)}
+.klasor.v .zbuyuk{border-color:var(--mor);background:var(--mor-acik)}
+.vsatir{display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--cizgi)}
+.vsatir .tik{width:32px;height:32px;border-radius:16px;background:none;padding:0}
+.vsatir .tik.var{background:var(--yesil)}
+.vbilgi{flex:1;min-width:0;border:0;background:none;padding:0;text-align:left}
+.vbilgi b{display:block;font-weight:600}
+.vbilgi small{display:block;font-size:14px;color:var(--soluk)}
+.vsatir .tutar{font-variant-numeric:tabular-nums;font-weight:600}
+.vdurum{font-weight:600}
+.vdurum.gecti{color:var(--kirmizi)} .vdurum.yakin{color:var(--turuncu)} .vdurum.odendi{color:var(--yesil)}
+.ara{margin:0;padding:16px 16px 6px;font-size:15px;font-weight:600;color:var(--soluk);border-bottom:1px solid var(--cizgi)}
+.uyari{display:block;width:100%;text-align:left;border:0;border-radius:10px;background:#B3261E;color:#fff;padding:12px 14px;margin:0 0 14px;font-size:15px;line-height:1.45}
+.uyari span{display:block;margin-top:6px;font-weight:700;text-decoration:underline}
+.rozetizin{display:block;width:calc(100% - 32px);margin:4px 16px 10px;border:1px solid var(--cizgi);border-radius:10px;background:var(--zemin);padding:10px 12px;font-size:14px;text-align:left;color:var(--soluk)}
+.ana.gri{background:var(--zemin);color:var(--murekkep);border:1px solid var(--cizgi)}
+#vergiDugmeler{margin-bottom:12px}
 .sekme::before{content:"";width:10px;height:10px;border-radius:3px;background:var(--renk)}
 .sekme[aria-selected="true"]{background:var(--kagit);color:var(--murekkep)}
 .sekme .say{font-weight:500;color:var(--soluk);font-size:14px;font-variant-numeric:tabular-nums}
@@ -151,9 +174,12 @@ dialog[open]{animation:cik .22s ease-out}
     <button class="ok" id="ileri" aria-label="Sonraki ay">›</button>
   </header>
   <div id="serit"></div>
+  <div id="vergiUyari"></div>
   <nav class="sekmeler" role="tablist">
     <button class="sekme f" role="tab" id="sekmeF" aria-selected="true">Faturalar <span class="say" id="sayF"></span></button>
     <button class="sekme z" role="tab" id="sekmeZ" aria-selected="false">Z raporları <span class="say" id="sayZ"></span></button>
+    <button class="sekme v" role="tab" id="sekmeV" aria-selected="false">Vergiler <span class="say" id="sayV"></span></button>
+    <button class="sekme s" role="tab" id="sekmeS" aria-selected="false">Serkan <span class="say" id="sayS"></span></button>
   </nav>
   <main id="klasor" class="klasor f"></main>
 </div>
@@ -175,8 +201,8 @@ dialog[open]{animation:cik .22s ease-out}
       <svg viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4M9 13h6M9 17h6"/></svg>Dosyalardan PDF seç</label>
   </div>
   <div class="onizleme" id="onizleme" hidden></div>
-  <label class="alan" id="turAlan"><span>Ne faturası?</span><select id="tur"></select></label>
-  <label class="alan" id="digerAlan" hidden><span>Faturanın adı</span><input id="digerAd" placeholder="Örneğin: Doğalgaz, İnternet" autocomplete="off"></label>
+  <label class="alan" id="turAlan"><span id="turEtiket">Ne faturası?</span><select id="tur"></select></label>
+  <label class="alan" id="digerAlan" hidden><span id="digerEtiket">Faturanın adı</span><input id="digerAd" placeholder="Örneğin: Doğalgaz, İnternet" autocomplete="off"></label>
   <div class="iki">
     <label class="alan"><span>Tutar (TL)</span><input id="tutar" inputmode="decimal" placeholder="0,00" autocomplete="off"></label>
     <label class="alan"><span id="tarihEtiket">Fatura tarihi</span><input id="tarih" type="date"></label>
@@ -191,6 +217,7 @@ dialog[open]{animation:cik .22s ease-out}
   <div class="pbaslik"><h2 id="gorBaslik"></h2><button type="button" class="kapat" data-kapat aria-label="Kapat">✕</button></div>
   <div class="goruntu" id="gorIcerik"></div>
   <dl class="bilgi" id="gorBilgi"></dl>
+  <div id="vergiDugmeler" hidden></div>
   <button class="sil" id="silBtn">Bu kaydı sil</button>
 </div></dialog>
 

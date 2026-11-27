@@ -6,6 +6,7 @@ const AYLAR = ['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağus
 const GUNLER = ['Pazar','Pazartesi','Salı','Çarşamba','Perşembe','Cuma','Cumartesi'];
 const TURLER = ['Kira','Elektrik','Su','Güvenlik alarmı'];
 const DIGER = '__diger__';
+const VERGI_TURLER = ['KDV', 'SGK primi', 'Muhtasar (stopaj)', 'Geçici vergi', 'Gelir / kurumlar vergisi', 'Bağ-Kur'];
 
 const $ = s => document.querySelector(s);
 const kacis = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -37,11 +38,15 @@ const dosyaAdiTemiz = s => s.replace(/[çÇğĞıİöÖşŞüÜ]/g, c => ({ç:'c
 let db;
 function dbAc() {
   return new Promise((ok, hata) => {
-    const r = indexedDB.open('fatura-defteri', 1);
-    r.onupgradeneeded = () => {
+    const r = indexedDB.open('fatura-defteri', 2);
+    r.onupgradeneeded = e => {
       const d = r.result;
-      d.createObjectStore('kayit', {keyPath: 'id'}).createIndex('ay', 'ay');
-      d.createObjectStore('ay', {keyPath: 'ay'});
+      if (e.oldVersion < 1) {
+        d.createObjectStore('kayit', {keyPath: 'id'}).createIndex('ay', 'ay');
+        d.createObjectStore('ay', {keyPath: 'ay'});
+      }
+      // Sürüm 2: vergiler aydan bağımsız listelendiği için klasöre göre arama
+      if (e.oldVersion < 2) r.transaction.objectStore('kayit').createIndex('klasor', 'klasor');
     };
     r.onsuccess = () => { db = r.result; ok(); };
     r.onerror = () => hata(r.error);
@@ -58,7 +63,18 @@ function islem(depo, mod, fn) {
   });
 }
 const kayitlariGetir = ay => islem('kayit', 'readonly', s => s.index('ay').getAll(ay));
-const kayitYaz = k => islem('kayit', 'readwrite', s => s.put(k));
+/* Ödeme takip klasörleri: son ödeme tarihi + ödendi işareti olanlar */
+const TAKIP = {
+  vergi:  {sekme: 'Vergiler', ekle: '+ Vergi ekle', bos: 'Ödenecek vergi yok. Muhasebe vergi belgesi atınca buraya ekleyin, son ödeme gününü takip edelim.'},
+  serkan: {sekme: 'Serkan', ekle: '+ Ödeme ekle', bos: 'Ödenecek bir şey yok. Örneğin "Turkcell annem", tutarı ve son ödeme gününü yazın; günü yaklaşınca uyarayım.'}
+};
+const takipMi = kl => kl in TAKIP;
+const vergileriGetir = async () => {
+  const sonuc = [];
+  for (const kl of Object.keys(TAKIP)) sonuc.push(...await islem('kayit', 'readonly', s => s.index('klasor').getAll(kl)));
+  return sonuc;
+};
+const kayitYaz = k => { const {_url, ...temiz} = k; return islem('kayit', 'readwrite', s => s.put(temiz)); };
 const kayitSil = id => islem('kayit', 'readwrite', s => s.delete(id));
 const ayBilgiGetir = ay => islem('ay', 'readonly', s => s.get(ay));
 const ayBilgiYaz = b => islem('ay', 'readwrite', s => s.put(b));
@@ -67,14 +83,66 @@ const ayBilgiYaz = b => islem('ay', 'readwrite', s => s.put(b));
 let ay = ayOf(bugunStr());
 let sekme = 'fatura';
 let kayitlar = [];
+let vergiler = [];   // takip klasörlerinin (vergi + serkan) bütün kayıtları; ödenmeyen, ödenene kadar görünür
 let ayBilgi = null;
 const blobUrl = k => { if (!k._url) k._url = URL.createObjectURL(new Blob([k.veri], {type: k.tip})); return k._url; };
 
 async function yenile() {
-  kayitlar.forEach(k => k._url && URL.revokeObjectURL(k._url));
+  kayitlar.concat(vergiler).forEach(k => k._url && URL.revokeObjectURL(k._url));
   kayitlar = await kayitlariGetir(ay);
+  vergiler = await vergileriGetir();
   ayBilgi = await ayBilgiGetir(ay);
   ciz();
+}
+
+/* ---------- Vergiler: son ödeme durumu ---------- */
+const gunFarki = t => {
+  const b = new Date(); b.setHours(0, 0, 0, 0);
+  const d = new Date(+t.slice(0,4), +t.slice(5,7)-1, +t.slice(8,10));
+  return Math.round((d - b) / 86400000);
+};
+function vergiDurum(k) {
+  if (k.odendi) { const d = new Date(k.odendi); return {yazi: `Ödendi, ${d.getDate()} ${AYLAR[d.getMonth()]}`, sinif: 'odendi'}; }
+  const g = gunFarki(k.tarih);
+  if (g < 0) return {yazi: `Son ödeme ${-g} gün geçti`, sinif: 'gecti'};
+  if (g === 0) return {yazi: 'Bugün son gün', sinif: 'gecti'};
+  if (g === 1) return {yazi: 'Yarın son gün', sinif: 'yakin'};
+  if (g <= 3) return {yazi: `${g} gün kaldı`, sinif: 'yakin'};
+  return {yazi: `${g} gün kaldı`, sinif: ''};
+}
+const odenecekler = kl => vergiler.filter(k => !k.odendi && (!kl || k.klasor === kl)).sort((a, b) => a.tarih.localeCompare(b.tarih));
+const buAyOdenenler = kl => vergiler.filter(k => { if (!k.odendi || k.klasor !== kl) return false; const d = new Date(k.odendi); return `${d.getFullYear()}-${ikiHane(d.getMonth()+1)}` === ay; }).sort((a, b) => b.odendi - a.odendi);
+async function odendiDegistir(id) {
+  const k = vergiler.find(x => x.id === id);
+  if (!k) return;
+  if (k.odendi && !confirm(`${k.tur} "ödenmedi" olarak geri alınsın mı?`)) return;
+  await kayitYaz({...k, odendi: k.odendi ? null : Date.now()});
+  await yenile();
+  return true;
+}
+
+/* Uyarı: son günü 3 gün ya da daha az kalan (veya geçen) ödenmemiş vergiler.
+   Takvim KULLANILMIYOR (kullanıcı isteği: arkada silinmeyen kayıt kalmasın). */
+const acilVergiler = () => odenecekler().filter(k => gunFarki(k.tarih) <= 3);
+const rozetDestekli = () => 'setAppBadge' in navigator && 'Notification' in window;
+function rozetGuncelle() {
+  if (!rozetDestekli() || Notification.permission !== 'granted') return;
+  const n = acilVergiler().length;
+  (n ? navigator.setAppBadge(n) : navigator.clearAppBadge()).catch(() => {});
+}
+async function rozetIzniIste() {
+  try { await Notification.requestPermission(); } catch (e) {}
+  ciz();
+}
+
+function vergiUyarisi() {
+  rozetGuncelle();
+  const acil = acilVergiler();
+  const yer = $('#vergiUyari');
+  if (!acil.length) { yer.innerHTML = ''; return; }
+  const satir = acil.map(k => `<b>${kacis(k.tur)}</b>: ${vergiDurum(k).yazi.toLowerCase()}`).join('<br>');
+  const hedef = acil[0].klasor;
+  yer.innerHTML = `<button class="uyari" data-sekme="${hedef}">${satir}<span>${TAKIP[hedef].sekme} klasörünü aç</span></button>`;
 }
 
 const faturalar = () => kayitlar.filter(k => k.klasor === 'fatura').sort((a, b) => a.eklendi - b.eklendi);
@@ -104,18 +172,50 @@ function ciz() {
   const girilen = TURLER.filter(t => f.some(k => k.tur === t) || gelmediler().includes(t)).length;
   $('#sayF').textContent = `${girilen}/${TURLER.length}`;
   $('#sayZ').textContent = z.length ? String(z.length) : '';
+  for (const [kl, id] of [['vergi', '#sayV'], ['serkan', '#sayS']]) {
+    const od = odenecekler(kl);
+    $(id).textContent = od.length ? String(od.length) : '';
+    $(id).classList.toggle('acil', od.some(k => gunFarki(k.tarih) <= 3));
+  }
   $('#sekmeF').setAttribute('aria-selected', sekme === 'fatura');
   $('#sekmeZ').setAttribute('aria-selected', sekme === 'z');
+  $('#sekmeV').setAttribute('aria-selected', sekme === 'vergi');
+  $('#sekmeS').setAttribute('aria-selected', sekme === 'serkan');
+  vergiUyarisi();
 
   const kl = $('#klasor');
-  kl.className = 'klasor ' + (sekme === 'fatura' ? 'f' : 'z');
-  kl.innerHTML = sekme === 'fatura' ? faturaHtml(f) : zHtml(z);
+  kl.className = 'klasor ' + ({fatura: 'f', z: 'z', vergi: 'v', serkan: 's'})[sekme];
+  kl.innerHTML = sekme === 'fatura' ? faturaHtml(f) : sekme === 'z' ? zHtml(z) : vergiHtml(sekme);
 
   const parca = [];
   if (f.length) parca.push(`${f.length} fatura`);
   if (z.length) parca.push(`${z.length} Z raporu`);
   $('#ozet').textContent = parca.length ? parca.join(', ') + ' gönderilecek' : 'Bu ay henüz bir şey eklenmedi';
-  $('#gonderBtn').disabled = !kayitlar.length;
+  $('#gonderBtn').disabled = !(f.length || z.length);
+}
+
+function vergiHtml(kl) {
+  const od = odenecekler(kl), bilgi = TAKIP[kl];
+  const satir = k => {
+    const d = vergiDurum(k);
+    return `<div class="vsatir">
+      <button class="tik${k.odendi ? ' var' : ''}" data-ode="${k.id}" aria-label="${kacis(k.tur)}: ${k.odendi ? 'ödenmedi yap' : 'ödendi olarak işaretle'}"></button>
+      <button class="vbilgi" data-gor="${k.id}">
+        <b>${kacis(k.tur)}</b>
+        <small>Son ödeme: ${tarihYazi(k.tarih, true)}</small>
+        <small class="vdurum ${d.sinif}">${d.yazi}</small>
+      </button>
+      <span class="tutar">${k.tutar != null ? para(k.tutar) : ''}</span></div>`;
+  };
+  let h = `<button class="zbuyuk" data-ekle="${kl}">${bilgi.ekle}</button>`;
+  if (rozetDestekli() && Notification.permission === 'default')
+    h += `<button class="rozetizin" data-rozet>Son günü yaklaşan ödemelerin sayısı uygulama simgesinde görünsün. Açmak için dokunun.</button>`;
+  if (od.length) h += `<h3 class="ara">Ödenecekler</h3>` + od.map(satir).join('') +
+    `<div class="alt"><span>Ödenecek toplam</span><b>${para(topla(od))}</b></div>`;
+  else h += `<p class="bos">${bilgi.bos}</p>`;
+  const odenen = buAyOdenenler(kl);
+  if (odenen.length) h += `<h3 class="ara">${AYLAR[+ay.slice(5,7)-1]} ayında ödenenler</h3>` + odenen.map(satir).join('');
+  return h;
 }
 
 function kucukResim(k) {
@@ -187,27 +287,35 @@ let secilen = null; // {veri:ArrayBuffer, tip, ad, kucuk}
 let ekleKlasor = 'fatura';
 
 function ekleAc(tur) {
-  ekleKlasor = tur === 'Z raporu' ? 'z' : 'fatura';
+  ekleKlasor = tur === 'Z raporu' ? 'z' : takipMi(tur) ? tur : 'fatura';
+  const vergi = ekleKlasor === 'vergi', serkan = ekleKlasor === 'serkan';
   secilen = null;
   $('#ekleForm').reset();
   $('#onizleme').hidden = true; $('#onizleme').innerHTML = '';
-  $('#secim').hidden = false;
+  $('#secim').hidden = serkan;   // Serkan klasörü belge istemez, sadece yazı
   $('#ekleHata').textContent = '';
-  $('#ekleBaslik').textContent = ekleKlasor === 'z' ? 'Z raporu ekle' : 'Fatura ekle';
-  $('#turAlan').hidden = ekleKlasor === 'z';
-  $('#tarihEtiket').textContent = ekleKlasor === 'z' ? 'Rapor günü' : 'Fatura tarihi';
+  $('#ekleBaslik').textContent = {z: 'Z raporu ekle', vergi: 'Vergi ekle', serkan: 'Ödeme ekle', fatura: 'Fatura ekle'}[ekleKlasor];
+  $('#turAlan').hidden = ekleKlasor === 'z' || serkan;
+  $('#turEtiket').textContent = vergi ? 'Ne vergisi?' : 'Ne faturası?';
+  $('#digerEtiket').textContent = serkan ? 'Ne ödemesi?' : vergi ? 'Verginin adı' : 'Faturanın adı';
+  $('#digerAd').placeholder = serkan ? 'Örneğin: Turkcell annem' : vergi ? 'Örneğin: Emlak vergisi, ÇTV' : 'Örneğin: Doğalgaz, İnternet';
+  $('#tarihEtiket').textContent = takipMi(ekleKlasor) ? 'Son ödeme tarihi' : {z: 'Rapor günü', fatura: 'Fatura tarihi'}[ekleKlasor];
 
   const sec = $('#tur');
-  const adlar = [...TURLER];
-  faturalar().forEach(k => { if (!adlar.includes(k.tur)) adlar.push(k.tur); });
+  const adlar = vergi ? [...VERGI_TURLER] : [...TURLER];
+  (vergi ? vergiler.filter(k => k.klasor === 'vergi') : faturalar()).forEach(k => { if (!adlar.includes(k.tur)) adlar.push(k.tur); });
   sec.innerHTML = adlar.map(a => `<option>${kacis(a)}</option>`).join('') + `<option value="${DIGER}">Diğer…</option>`;
-  sec.value = ekleKlasor === 'fatura' ? (tur === DIGER ? DIGER : tur) : TURLER[0];
+  sec.value = serkan ? DIGER : ekleKlasor === 'fatura' ? (tur === DIGER ? DIGER : tur) : adlar[0];
   $('#digerAlan').hidden = sec.value !== DIGER;
 
   const tarih = $('#tarih');
-  tarih.min = `${ay}-01`; tarih.max = `${ay}-${ikiHane(ayGunSayisi(ay))}`;
-  const bugun = bugunStr();
-  tarih.value = ayOf(bugun) === ay ? bugun : tarih.max;
+  if (takipMi(ekleKlasor)) {
+    tarih.min = ''; tarih.max = ''; tarih.value = '';
+  } else {
+    tarih.min = `${ay}-01`; tarih.max = `${ay}-${ikiHane(ayGunSayisi(ay))}`;
+    const bugun = bugunStr();
+    tarih.value = ayOf(bugun) === ay ? bugun : tarih.max;
+  }
   $('#ekleP').showModal();
 }
 
@@ -240,22 +348,25 @@ async function dosyaGeldi(file) {
 async function kaydet(e) {
   e.preventDefault();
   const hataP = $('#ekleHata');
-  if (!secilen) { hataP.textContent = 'Önce fotoğraf çekin ya da bir dosya seçin.'; return; }
+  if (!secilen && ekleKlasor !== 'serkan') { hataP.textContent = 'Önce fotoğraf çekin ya da bir dosya seçin.'; return; }
   let tur = 'Z raporu';
-  if (ekleKlasor === 'fatura') {
+  if (ekleKlasor !== 'z') {
     tur = $('#tur').value;
     if (tur === DIGER) {
       tur = $('#digerAd').value.trim();
-      if (!tur) { hataP.textContent = 'Faturanın adını yazın.'; $('#digerAd').focus(); return; }
+      if (!tur) { hataP.textContent = {vergi: 'Verginin adını yazın.', serkan: 'Ne ödemesi olduğunu yazın.'}[ekleKlasor] || 'Faturanın adını yazın.'; $('#digerAd').focus(); return; }
     }
   }
   const tutar = tutarOku($('#tutar').value);
   if (Number.isNaN(tutar)) { hataP.textContent = 'Tutarı yalnızca rakamla yazın, örneğin 1.250,40'; $('#tutar').focus(); return; }
+  if (takipMi(ekleKlasor) && !$('#tarih').value) { hataP.textContent = 'Son ödeme tarihini seçin.'; $('#tarih').focus(); return; }
   const tarih = $('#tarih').value || `${ay}-01`;
   const k = {
     id: (crypto.randomUUID ? crypto.randomUUID() : Date.now() + '-' + Math.random()),
     ay, klasor: ekleKlasor, tur, tutar, tarih, not: $('#notAlan').value.trim(),
-    veri: secilen.veri, tip: secilen.tip, ad: secilen.ad, kucuk: secilen.kucuk, eklendi: Date.now()
+    veri: secilen ? secilen.veri : null, tip: secilen ? secilen.tip : null, ad: secilen ? secilen.ad : null,
+    kucuk: secilen ? secilen.kucuk : null, eklendi: Date.now(),
+    odendi: null
   };
   $('#kaydet').disabled = true;
   try {
@@ -271,17 +382,24 @@ async function kaydet(e) {
 /* ---------- Görüntüleme ---------- */
 let gorulen = null;
 function gorAc(id) {
-  const k = kayitlar.find(x => x.id === id);
+  const k = kayitlar.find(x => x.id === id) || vergiler.find(x => x.id === id);
   if (!k) return;
   gorulen = k;
+  const vergi = takipMi(k.klasor);
   $('#gorBaslik').textContent = k.klasor === 'z' ? 'Z raporu' : k.tur;
-  $('#gorIcerik').innerHTML = k.tip === 'application/pdf'
+  $('#gorIcerik').innerHTML = !k.veri ? '' : k.tip === 'application/pdf'
     ? `<p><a class="ekle" href="${blobUrl(k)}" target="_blank" rel="noopener">PDF'i aç</a></p>`
     : `<img src="${blobUrl(k)}" alt="">`;
   $('#gorBilgi').innerHTML =
     `<dt>Tutar</dt><dd>${k.tutar != null ? para(k.tutar) : 'Girilmedi'}</dd>` +
-    `<dt>Tarih</dt><dd>${tarihYazi(k.tarih)}</dd>` +
+    `<dt>${vergi ? 'Son ödeme' : 'Tarih'}</dt><dd>${tarihYazi(k.tarih)}</dd>` +
+    (vergi ? `<dt>Durum</dt><dd class="vdurum ${vergiDurum(k).sinif}">${vergiDurum(k).yazi}</dd>` : '') +
     (k.not ? `<dt>Not</dt><dd>${kacis(k.not)}</dd>` : '');
+  const vd = $('#vergiDugmeler');
+  vd.hidden = !vergi;
+  if (vergi) {
+    vd.innerHTML = `<button class="ana genis${k.odendi ? ' gri' : ''}" data-ode="${k.id}">${k.odendi ? 'Ödenmedi olarak geri al' : 'Ödendi olarak işaretle'}</button>`;
+  }
   $('#gorP').showModal();
 }
 async function sil() {
@@ -452,9 +570,12 @@ function seritCiz() {
 
 /* ---------- Olaylar ---------- */
 document.addEventListener('click', e => {
-  const t = e.target.closest('[data-ekle],[data-gor],[data-kapat],[data-degistir],[data-gelmedi],[data-gelmedi-geri]');
+  const t = e.target.closest('[data-ekle],[data-gor],[data-kapat],[data-degistir],[data-gelmedi],[data-gelmedi-geri],[data-ode],[data-rozet],[data-sekme]');
   if (!t) return;
-  if (t.dataset.gelmedi) gelmediDegistir(t.dataset.gelmedi, true);
+  if (t.dataset.ode) { const p = t.closest('dialog'); odendiDegistir(t.dataset.ode).then(ok => { if (ok && p) p.close(); }); }
+  else if (t.hasAttribute('data-rozet')) rozetIzniIste();
+  else if (t.dataset.sekme) { sekme = t.dataset.sekme; ciz(); window.scrollTo(0, 0); }
+  else if (t.dataset.gelmedi) gelmediDegistir(t.dataset.gelmedi, true);
   else if (t.dataset.gelmediGeri) gelmediDegistir(t.dataset.gelmediGeri, false);
   else if (t.dataset.ekle) ekleAc(t.dataset.ekle);
   else if (t.dataset.gor) gorAc(t.dataset.gor);
@@ -473,6 +594,10 @@ $('#geri').addEventListener('click', () => { ay = ayKaydir(ay, -1); yenile(); })
 $('#ileri').addEventListener('click', () => { ay = ayKaydir(ay, 1); yenile(); });
 $('#sekmeF').addEventListener('click', () => { sekme = 'fatura'; ciz(); });
 $('#sekmeZ').addEventListener('click', () => { sekme = 'z'; ciz(); });
+$('#sekmeV').addEventListener('click', () => { sekme = 'vergi'; ciz(); });
+$('#sekmeS').addEventListener('click', () => { sekme = 'serkan'; ciz(); });
+// Gün değişince (uygulama arkada açık kalmışsa) kalan gün yazıları ve uyarı tazelensin
+document.addEventListener('visibilitychange', () => { if (!document.hidden && db) yenile(); });
 
 dbAc().then(yenile).catch(() => {
   $('#klasor').innerHTML = '<p class="bos">Kayıt alanı açılamadı. Safari ayarlarında "Gizli" sekmede değilseniz sayfayı yenileyin.</p>';
