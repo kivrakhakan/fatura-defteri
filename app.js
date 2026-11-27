@@ -66,7 +66,7 @@ const kayitlariGetir = ay => islem('kayit', 'readonly', s => s.index('ay').getAl
 /* Ödeme takip klasörleri: son ödeme tarihi + ödendi işareti olanlar */
 const TAKIP = {
   vergi:  {sekme: 'Vergiler', ekle: '+ Vergi ekle', bos: 'Ödenecek vergi yok. Muhasebe vergi belgesi atınca buraya ekleyin, son ödeme gününü takip edelim.'},
-  serkan: {sekme: 'Serkan', ekle: '+ Ödeme ekle', bos: 'Ödenecek bir şey yok. Örneğin "Turkcell annem", tutarı ve son ödeme gününü yazın; günü yaklaşınca uyarayım.'}
+  serkan: {sekme: 'Serkan', ekle: '+ Aylık ödeme ekle', bos: 'Aylık ödeme yok. Örneğin "Turkcell annem", tutarı ve son ödeme gününü yazın. Ödendi deyince bir sonraki ayın kaydı kendiliğinden açılır.'}
 };
 const takipMi = kl => kl in TAKIP;
 const vergileriGetir = async () => {
@@ -115,10 +115,30 @@ const buAyOdenenler = kl => vergiler.filter(k => { if (!k.odendi || k.klasor !==
 async function odendiDegistir(id) {
   const k = vergiler.find(x => x.id === id);
   if (!k) return;
-  if (k.odendi && !confirm(`${k.tur} "ödenmedi" olarak geri alınsın mı?`)) return;
-  await kayitYaz({...k, odendi: k.odendi ? null : Date.now()});
+  if (k.odendi) {
+    if (!confirm(`${k.tur} "ödenmedi" olarak geri alınsın mı?`)) return;
+    // Ödendi denince açılan sonraki ay kaydı henüz ödenmediyse onu da kaldır (çift kayıt olmasın)
+    const sonraki = k.sonrakiId && vergiler.find(x => x.id === k.sonrakiId);
+    if (sonraki && !sonraki.odendi) await kayitSil(sonraki.id);
+    await kayitYaz({...k, odendi: null, sonrakiId: null});
+  } else {
+    let sonrakiId = null;
+    if (k.klasor === 'serkan') {   // Serkan klasörü aylık: ödenince gelecek ayın kaydı açılır
+      const odemeGunu = k.odemeGunu || +k.tarih.slice(8, 10);
+      const tarih = birAySonra(k.tarih, odemeGunu);
+      sonrakiId = yeniId();
+      await kayitYaz({...k, id: sonrakiId, ay: ayOf(tarih), tarih, odemeGunu, odendi: null, sonrakiId: null, eklendi: Date.now()});
+    }
+    await kayitYaz({...k, odendi: Date.now(), sonrakiId});
+  }
   await yenile();
   return true;
+}
+const yeniId = () => crypto.randomUUID ? crypto.randomUUID() : Date.now() + '-' + Math.random();
+/* Bir sonraki ayın aynı günü; ayda o gün yoksa ayın son günü (31 → 30/28) */
+function birAySonra(t, gun) {
+  const sonrakiAy = ayKaydir(ayOf(t), 1);
+  return `${sonrakiAy}-${ikiHane(Math.min(gun, ayGunSayisi(sonrakiAy)))}`;
 }
 
 /* Uyarı: son günü 3 gün ya da daha az kalan (veya geçen) ödenmemiş vergiler.
@@ -202,7 +222,7 @@ function vergiHtml(kl) {
       <button class="tik${k.odendi ? ' var' : ''}" data-ode="${k.id}" aria-label="${kacis(k.tur)}: ${k.odendi ? 'ödenmedi yap' : 'ödendi olarak işaretle'}"></button>
       <button class="vbilgi" data-gor="${k.id}">
         <b>${kacis(k.tur)}</b>
-        <small>Son ödeme: ${tarihYazi(k.tarih, true)}</small>
+        <small>${k.klasor === 'serkan' ? 'Aylık, son ödeme' : 'Son ödeme'}: ${tarihYazi(k.tarih, true)}</small>
         <small class="vdurum ${d.sinif}">${d.yazi}</small>
       </button>
       <span class="tutar">${k.tutar != null ? para(k.tutar) : ''}</span></div>`;
@@ -394,6 +414,7 @@ function gorAc(id) {
     `<dt>Tutar</dt><dd>${k.tutar != null ? para(k.tutar) : 'Girilmedi'}</dd>` +
     `<dt>${vergi ? 'Son ödeme' : 'Tarih'}</dt><dd>${tarihYazi(k.tarih)}</dd>` +
     (vergi ? `<dt>Durum</dt><dd class="vdurum ${vergiDurum(k).sinif}">${vergiDurum(k).yazi}</dd>` : '') +
+    (k.klasor === 'serkan' ? `<dt>Tekrar</dt><dd>Her ay. Artık ödenmeyecekse bu kaydı silin.</dd>` : '') +
     (k.not ? `<dt>Not</dt><dd>${kacis(k.not)}</dd>` : '');
   const vd = $('#vergiDugmeler');
   vd.hidden = !vergi;
