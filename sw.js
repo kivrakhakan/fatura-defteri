@@ -1,4 +1,4 @@
-﻿// Uygulama dosyalarÄ±nÄ± telefona saklar; internet yokken de aÃ§Ä±lÄ±r.
+﻿// Uygulama dosyalarını telefona saklar; internet yokken de açılır.
 const SURUM = 'fatura-defteri-v2';
 const DOSYALAR = ['./', 'index.html', 'app.js', 'vendor/jspdf.umd.min.js', 'manifest.webmanifest', 'icon-180.png', 'icon-512.png'];
 
@@ -8,7 +8,7 @@ self.addEventListener('install', e => {
 self.addEventListener('activate', e => {
   e.waitUntil(caches.keys().then(k => Promise.all(k.filter(a => a !== SURUM).map(a => caches.delete(a)))).then(() => self.clients.claim()));
 });
-// Ã–nce internetten yenisini dener, olmazsa saklananÄ± aÃ§ar.
+// Önce internetten yenisini dener, olmazsa saklananı açar.
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET' || new URL(e.request.url).origin !== location.origin) return;
   e.respondWith(
