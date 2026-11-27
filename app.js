@@ -80,6 +80,15 @@ async function yenile() {
 const faturalar = () => kayitlar.filter(k => k.klasor === 'fatura').sort((a, b) => a.eklendi - b.eklendi);
 const zler = () => kayitlar.filter(k => k.klasor === 'z').sort((a, b) => a.tarih.localeCompare(b.tarih) || a.eklendi - b.eklendi);
 const topla = liste => liste.reduce((t, k) => t + (k.tutar || 0), 0);
+/* "Bu ay gelmedi" işaretlenen fatura türleri (ay kaydında saklanır) */
+const gelmediler = () => (ayBilgi && ayBilgi.gelmedi) || [];
+const eksikTurler = f => TURLER.filter(t => !f.some(k => k.tur === t) && !gelmediler().includes(t));
+async function gelmediDegistir(tur, isaretle) {
+  const liste = gelmediler().filter(t => t !== tur);
+  if (isaretle) liste.push(tur);
+  await ayBilgiYaz({...(ayBilgi || {}), ay, gelmedi: liste});
+  await yenile();
+}
 
 function ciz() {
   const f = faturalar(), z = zler();
@@ -92,7 +101,7 @@ function ciz() {
   } else { durum.textContent = 'Henüz gönderilmedi'; durum.className = 'durum'; }
   $('#ileri').disabled = ay >= ayOf(bugunStr());
 
-  const girilen = TURLER.filter(t => f.some(k => k.tur === t)).length;
+  const girilen = TURLER.filter(t => f.some(k => k.tur === t) || gelmediler().includes(t)).length;
   $('#sayF').textContent = `${girilen}/${TURLER.length}`;
   $('#sayZ').textContent = z.length ? String(z.length) : '';
   $('#sekmeF').setAttribute('aria-selected', sekme === 'fatura');
@@ -119,12 +128,16 @@ function faturaHtml(f) {
   let h = '';
   for (const ad of adlar) {
     const liste = f.filter(k => k.tur === ad);
+    const gelmedi = !liste.length && gelmediler().includes(ad);
     const alt = liste.length
       ? `<small>${liste.length > 1 ? liste.length + ' fatura, ' : ''}${para(topla(liste))}</small>`
-      : `<small class="eksik">Bu ay girilmedi</small>`;
-    h += `<div class="satir"><span class="tik${liste.length ? ' var' : ''}"></span>
-      <div class="ad"><b>${kacis(ad)}</b>${alt}</div>
-      <button class="ekle" data-ekle="${kacis(ad)}" aria-label="${kacis(ad)} faturası ekle">${liste.length ? '+ Bir tane daha' : '+ Ekle'}</button></div>`;
+      : gelmedi ? `<small>Bu ay gelmedi</small>` : `<small class="eksik">Bu ay girilmedi</small>`;
+    const dugmeler = gelmedi
+      ? `<button class="ekle ikincil" data-gelmedi-geri="${kacis(ad)}">Geri al</button>`
+      : (!liste.length ? `<button class="ekle ikincil" data-gelmedi="${kacis(ad)}">Gelmedi</button>` : '') +
+        `<button class="ekle" data-ekle="${kacis(ad)}" aria-label="${kacis(ad)} faturası ekle">${liste.length ? '+ Bir tane daha' : '+ Ekle'}</button>`;
+    h += `<div class="satir"><span class="tik${liste.length ? ' var' : gelmedi ? ' yok' : ''}"></span>
+      <div class="ad"><b>${kacis(ad)}</b>${alt}</div>${dugmeler}</div>`;
     if (liste.length) {
       h += '<div class="kartlar">' + liste.map(k =>
         `<button class="kart" data-gor="${k.id}">${kucukResim(k)}<span>${k.tutar != null ? para(k.tutar) : 'Tutar yok'}<br><small>${tarihYazi(k.tarih)}</small></span></button>`
@@ -361,7 +374,8 @@ async function dosyalariHazirla() {
     const pdf = pdfBaslat();
     const pdfDosyalar = f.filter(k => k.tip === 'application/pdf');
     const satirlar = f.map(k => ({h: [k.tur, tarihYazi(k.tarih), k.not || '']}));
-    TURLER.filter(t => !f.some(k => k.tur === t)).forEach(t => satirlar.push({h: [t, '', 'Bu ay girilmedi'], renk: '#B3261E', renkSutun: 2}));
+    eksikTurler(f).forEach(t => satirlar.push({h: [t, '', 'Bu ay girilmedi'], renk: '#B3261E', renkSutun: 2}));
+    gelmediler().filter(t => !f.some(k => k.tur === t)).forEach(t => satirlar.push({h: [t, '', 'Bu ay gelmedi'], renk: '#5A6675', renkSutun: 2}));
     const sutunlar = [{ad: 'Fatura', x: KENAR, g: 330}, {ad: 'Tarih', x: KENAR + 350, g: 260}, {ad: 'Not', x: KENAR + 630, g: SW - 2 * KENAR - 630}];
     const dip = [`${f.length} fatura. Hazırlanma tarihi: ${bugun}.`];
     if (pdfDosyalar.length) dip.push(`PDF olarak gelen ${pdfDosyalar.length} fatura ayrı dosya olarak eklendi.`);
@@ -395,7 +409,7 @@ async function gonderAc() {
   const ic = $('#gonderIcerik');
   $('#gonderBaslik').textContent = `${ayEtiket(ay)} gönderimi`;
   const f = faturalar();
-  const eksik = TURLER.filter(t => !f.some(k => k.tur === t));
+  const eksik = eksikTurler(f);
   ic.innerHTML = '<p class="yukleniyor">Dosyalar hazırlanıyor…</p>';
   $('#gonderP').showModal();
   try {
@@ -417,7 +431,7 @@ async function gonderAc() {
   if (p) p.onclick = async () => {
     try {
       await navigator.share({files: hazirDosyalar});
-      await ayBilgiYaz({ay, gonderildi: Date.now()});
+      await ayBilgiYaz({...(ayBilgi || {}), ay, gonderildi: Date.now()});
       $('#gonderP').close();
       await yenile();
     } catch (e) {
@@ -438,15 +452,18 @@ function seritCiz() {
 
 /* ---------- Olaylar ---------- */
 document.addEventListener('click', e => {
-  const t = e.target.closest('[data-ekle],[data-gor],[data-kapat],[data-degistir]');
+  const t = e.target.closest('[data-ekle],[data-gor],[data-kapat],[data-degistir],[data-gelmedi],[data-gelmedi-geri]');
   if (!t) return;
-  if (t.dataset.ekle) ekleAc(t.dataset.ekle);
+  if (t.dataset.gelmedi) gelmediDegistir(t.dataset.gelmedi, true);
+  else if (t.dataset.gelmediGeri) gelmediDegistir(t.dataset.gelmediGeri, false);
+  else if (t.dataset.ekle) ekleAc(t.dataset.ekle);
   else if (t.dataset.gor) gorAc(t.dataset.gor);
   else if (t.hasAttribute('data-kapat')) t.closest('dialog').close();
   else if (t.hasAttribute('data-degistir')) { secilen = null; $('#onizleme').hidden = true; $('#onizleme').style.flexDirection = ''; $('#secim').hidden = false; }
 });
 document.querySelectorAll('dialog').forEach(d => d.addEventListener('click', e => { if (e.target === d) d.close(); }));
 $('#kamera').addEventListener('change', e => { dosyaGeldi(e.target.files[0]); e.target.value = ''; });
+$('#galeri').addEventListener('change', e => { dosyaGeldi(e.target.files[0]); e.target.value = ''; });
 $('#dosyaSec').addEventListener('change', e => { dosyaGeldi(e.target.files[0]); e.target.value = ''; });
 $('#tur').addEventListener('change', e => { $('#digerAlan').hidden = e.target.value !== DIGER; if (e.target.value === DIGER) $('#digerAd').focus(); });
 $('#ekleForm').addEventListener('submit', kaydet);

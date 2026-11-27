@@ -1,5 +1,5 @@
 ﻿// Uygulama dosyalarını telefona saklar; internet yokken de açılır.
-const SURUM = 'fatura-defteri-v2';
+const SURUM = 'fatura-defteri-v3';
 const DOSYALAR = ['./', 'index.html', 'app.js', 'vendor/jspdf.umd.min.js', 'manifest.webmanifest', 'icon-180.png', 'icon-512.png'];
 
 self.addEventListener('install', e => {
