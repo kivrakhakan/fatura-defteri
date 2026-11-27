@@ -303,7 +303,8 @@ function sayfaEkle(pdf, c, ilk) {
 }
 
 /* Özet sayfası: tablo, gerekirse birden çok sayfa */
-function ozetSayfalari(baslik, altBaslik, sutunlar, satirlar, toplamYazi, dipnotlar) {
+/* Muhasebeye giden PDF'te tutar ve toplam YOK (kullanıcı isteği): muhasebe tutarı belgeden kendisi okur. */
+function ozetSayfalari(baslik, altBaslik, sutunlar, satirlar, dipnotlar) {
   const sayfalar = [];
   let [c, x] = yeniSayfa();
   let y = KENAR + 20;
@@ -327,10 +328,7 @@ function ozetSayfalari(baslik, altBaslik, sutunlar, satirlar, toplamYazi, dipnot
     x.textAlign = 'left'; x.fillStyle = '#E1E6EB'; x.fillRect(KENAR, y + 18, SW - 2 * KENAR, 1); x.fillStyle = '#16202B';
     y += 54;
   }
-  y += 10; x.fillRect(KENAR, y - 30, SW - 2 * KENAR, 2); y += 16;
-  yazi(x, 30, true); x.fillText('Toplam', KENAR, y);
-  x.textAlign = 'right'; x.fillText(toplamYazi, SW - KENAR, y); x.textAlign = 'left';
-  y += 70;
+  y += 40;
   yazi(x, 22); x.fillStyle = '#5A6675';
   for (const d of dipnotlar) { x.fillText(kisalt(x, d, SW - 2 * KENAR), KENAR, y); y += 34; }
   sayfalar.push(c);
@@ -342,7 +340,7 @@ async function fotoSayfasi(k, baslik) {
   yazi(x, 30, true);
   x.fillText(kisalt(x, baslik, SW - 2 * KENAR), KENAR, KENAR);
   yazi(x, 24); x.fillStyle = '#5A6675';
-  const alt = [tarihYazi(k.tarih), k.tutar != null ? para(k.tutar) : null, k.not || null].filter(Boolean).join('   ');
+  const alt = [tarihYazi(k.tarih), k.not || null].filter(Boolean).join('   ');
   x.fillText(kisalt(x, alt, SW - 2 * KENAR), KENAR, KENAR + 40);
   const img = await resimAc(new Blob([k.veri], {type: k.tip}));
   const ust = KENAR + 70, gen = SW - 2 * KENAR, yuk = SH - ust - KENAR;
@@ -362,12 +360,12 @@ async function dosyalariHazirla() {
   if (f.length) {
     const pdf = pdfBaslat();
     const pdfDosyalar = f.filter(k => k.tip === 'application/pdf');
-    const satirlar = f.map(k => ({h: [k.tur, tarihYazi(k.tarih), k.not || '', k.tutar != null ? para(k.tutar) : 'Girilmedi']}));
-    TURLER.filter(t => !f.some(k => k.tur === t)).forEach(t => satirlar.push({h: [t, '', 'Bu ay girilmedi', ''], renk: '#B3261E', renkSutun: 2}));
-    const sutunlar = [{ad: 'Fatura', x: KENAR, g: 300}, {ad: 'Tarih', x: KENAR + 320, g: 230}, {ad: 'Not', x: KENAR + 570, g: 260}, {ad: 'Tutar', x: SW - KENAR - 210, g: 210, sag: true}];
+    const satirlar = f.map(k => ({h: [k.tur, tarihYazi(k.tarih), k.not || '']}));
+    TURLER.filter(t => !f.some(k => k.tur === t)).forEach(t => satirlar.push({h: [t, '', 'Bu ay girilmedi'], renk: '#B3261E', renkSutun: 2}));
+    const sutunlar = [{ad: 'Fatura', x: KENAR, g: 330}, {ad: 'Tarih', x: KENAR + 350, g: 260}, {ad: 'Not', x: KENAR + 630, g: SW - 2 * KENAR - 630}];
     const dip = [`${f.length} fatura. Hazırlanma tarihi: ${bugun}.`];
     if (pdfDosyalar.length) dip.push(`PDF olarak gelen ${pdfDosyalar.length} fatura ayrı dosya olarak eklendi.`);
-    const ozet = ozetSayfalari(`${etiket} faturaları`, 'Aylık gider faturaları', sutunlar, satirlar, para(topla(f)), dip);
+    const ozet = ozetSayfalari(`${etiket} faturaları`, 'Aylık gider faturaları', sutunlar, satirlar, dip);
     ozet.forEach((c, i) => sayfaEkle(pdf, c, i === 0));
     for (const k of f) if (k.tip !== 'application/pdf') sayfaEkle(pdf, await fotoSayfasi(k, `${k.tur} faturası`), false);
     dosyalar.push(new File([pdf.output('blob')], `${onEk}-Faturalar.pdf`, {type: 'application/pdf'}));
@@ -377,11 +375,11 @@ async function dosyalariHazirla() {
   if (z.length) {
     const pdf = pdfBaslat();
     const pdfDosyalar = z.filter(k => k.tip === 'application/pdf');
-    const satirlar = z.map(k => ({h: [tarihYazi(k.tarih, true), k.not || '', k.tutar != null ? para(k.tutar) : '']}));
-    const sutunlar = [{ad: 'Gün', x: KENAR, g: 420}, {ad: 'Not', x: KENAR + 440, g: 360}, {ad: 'Tutar', x: SW - KENAR - 230, g: 230, sag: true}];
+    const satirlar = z.map(k => ({h: [tarihYazi(k.tarih, true), k.not || '']}));
+    const sutunlar = [{ad: 'Gün', x: KENAR, g: 420}, {ad: 'Not', x: KENAR + 440, g: SW - 2 * KENAR - 440}];
     const dip = [`${z.length} Z raporu. Hazırlanma tarihi: ${bugun}.`];
     if (pdfDosyalar.length) dip.push(`PDF olarak gelen ${pdfDosyalar.length} Z raporu ayrı dosya olarak eklendi.`);
-    const ozet = ozetSayfalari(`${etiket} Z raporları`, 'Günlük kasa raporları', sutunlar, satirlar, para(topla(z)), dip);
+    const ozet = ozetSayfalari(`${etiket} Z raporları`, 'Günlük kasa raporları', sutunlar, satirlar, dip);
     ozet.forEach((c, i) => sayfaEkle(pdf, c, i === 0));
     for (const k of z) if (k.tip !== 'application/pdf') sayfaEkle(pdf, await fotoSayfasi(k, `Z raporu, ${tarihYazi(k.tarih, true)}`), false);
     dosyalar.push(new File([pdf.output('blob')], `${onEk}-Z-Raporlari.pdf`, {type: 'application/pdf'}));
