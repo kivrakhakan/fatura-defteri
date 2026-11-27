@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Fatura Defteri</title>
+<meta name="theme-color" content="#2B59A3">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Faturalar">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="manifest" href="manifest.webmanifest">
+<style>
+:root{
+  --zemin:#E6EBF0; --kagit:#FFFFFF; --murekkep:#16202B; --soluk:#5A6675; --cizgi:#D2D9E0;
+  --mavi:#2B59A3; --mavi-acik:#E3EBF7; --sari:#E2AC07; --sari-acik:#FBF1D2;
+  --kirmizi:#B3261E; --yesil:#1D7548;
+  --yazi:-apple-system,"SF Pro Text",system-ui,"Segoe UI",Roboto,sans-serif;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){
+  :root{
+    --zemin:#0F141A; --kagit:#1A2129; --murekkep:#E8EDF2; --soluk:#94A0AE; --cizgi:#2C3540;
+    --mavi:#6E9BE6; --mavi-acik:#1E2B40; --sari:#F0C02E; --sari-acik:#3A3115;
+    --kirmizi:#F2867E; --yesil:#5CC48D; color-scheme:dark;
+  }
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{
+  background:var(--zemin); color:var(--murekkep); font-family:var(--yazi);
+  font-size:17px; line-height:1.4; -webkit-text-size-adjust:100%;
+  padding:env(safe-area-inset-top) 0 calc(96px + env(safe-area-inset-bottom));
+  -webkit-tap-highlight-color:transparent;
+}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:3px solid var(--mavi);outline-offset:2px}
+.sar{max-width:560px;margin:0 auto;padding:0 16px}
+
+/* Ay başlığı */
+.ust{display:flex;align-items:center;gap:8px;padding:20px 0 14px}
+.ust h1{flex:1;margin:0;font-size:32px;font-weight:700;letter-spacing:-.02em;line-height:1.1}
+.ust .durum{display:block;font-size:14px;font-weight:500;letter-spacing:0;color:var(--soluk);margin-top:4px}
+.ust .durum.tamam{color:var(--yesil)}
+.ok{width:44px;height:44px;border-radius:22px;border:1px solid var(--cizgi);background:var(--kagit);font-size:22px;line-height:1;display:grid;place-items:center}
+.ok:disabled{opacity:.35}
+
+/* Uyarı şeridi */
+.serit{background:var(--kagit);border-left:4px solid var(--mavi);border-radius:6px;padding:12px 14px;margin:0 0 14px;font-size:15px}
+.serit b{font-weight:600}
+.serit button{border:0;background:none;color:var(--mavi);font-weight:600;padding:6px 0 0}
+
+/* Klasör sekmeleri */
+.sekmeler{display:flex;gap:6px;padding-left:10px}
+.sekme{position:relative;border:0;padding:10px 16px 9px;border-radius:12px 12px 0 0;background:transparent;color:var(--soluk);font-weight:600;font-size:16px;display:flex;align-items:center;gap:8px}
+.sekme::before{content:"";width:10px;height:10px;border-radius:3px;background:var(--renk)}
+.sekme[aria-selected="true"]{background:var(--kagit);color:var(--murekkep)}
+.sekme .say{font-weight:500;color:var(--soluk);font-size:14px;font-variant-numeric:tabular-nums}
+.sekme.f{--renk:var(--mavi)} .sekme.z{--renk:var(--sari)}
+.klasor{background:var(--kagit);border-radius:14px;border-top:5px solid var(--renk);padding:6px 0 4px;box-shadow:0 1px 0 var(--cizgi)}
+.klasor.f{--renk:var(--mavi)} .klasor.z{--renk:var(--sari)}
+
+/* Fatura satırları */
+.satir{display:flex;align-items:center;gap:12px;padding:14px 16px;border-bottom:1px solid var(--cizgi)}
+.satir:last-of-type{border-bottom:0}
+.satir .ad{flex:1;min-width:0}
+.satir .ad b{display:block;font-weight:600}
+.satir .ad small{display:block;color:var(--soluk);font-size:14px}
+.satir .ad small.eksik{color:var(--kirmizi)}
+.tik{width:26px;height:26px;border-radius:13px;border:2px solid var(--cizgi);flex:none;display:grid;place-items:center}
+.tik.var{border-color:var(--yesil);background:var(--yesil)}
+.tik.var::after{content:"";width:6px;height:11px;border:solid #fff;border-width:0 2.5px 2.5px 0;transform:translate(0,-1px) rotate(45deg)}
+.ekle{border:1px solid var(--cizgi);background:var(--zemin);border-radius:20px;padding:8px 14px;font-size:15px;font-weight:600;color:var(--mavi);white-space:nowrap}
+.kartlar{display:flex;flex-wrap:wrap;gap:8px;padding:0 16px 14px 54px;margin-top:-6px}
+.kart{border:1px solid var(--cizgi);background:var(--kagit);border-radius:8px;padding:4px 10px 4px 4px;display:flex;align-items:center;gap:8px;font-size:14px;font-variant-numeric:tabular-nums;text-align:left}
+.kucuk{width:40px;height:40px;border-radius:5px;object-fit:cover;background:var(--zemin);flex:none;display:grid;place-items:center;font-size:11px;font-weight:700;color:var(--kirmizi)}
+.alt{display:flex;justify-content:space-between;align-items:center;padding:14px 16px;border-top:1px solid var(--cizgi);font-variant-numeric:tabular-nums}
+.alt span{color:var(--soluk);font-size:15px}
+.alt b{font-size:18px}
+.diger{display:block;width:100%;border:0;background:none;color:var(--mavi);font-weight:600;padding:14px 16px;text-align:left;border-top:1px solid var(--cizgi)}
+
+/* Z raporları */
+.zbuyuk{display:flex;align-items:center;justify-content:center;gap:10px;width:calc(100% - 32px);margin:12px 16px 6px;padding:16px;border-radius:12px;border:2px dashed var(--sari);background:var(--sari-acik);font-weight:700;font-size:17px}
+.zsatir{display:flex;align-items:center;gap:14px;width:100%;border:0;border-bottom:1px solid var(--cizgi);background:none;padding:12px 16px;text-align:left}
+.fis{width:46px;height:58px;object-fit:cover;object-position:top;flex:none;background:#fff;
+  -webkit-mask:linear-gradient(#000 0 0) top/100% calc(100% - 5px) no-repeat,conic-gradient(from -45deg at bottom,#0000,#000 1deg 89deg,#0000 90deg) bottom/8px 5px repeat-x;
+  mask:linear-gradient(#000 0 0) top/100% calc(100% - 5px) no-repeat,conic-gradient(from -45deg at bottom,#0000,#000 1deg 89deg,#0000 90deg) bottom/8px 5px repeat-x}
+.zsatir .ad{flex:1}
+.zsatir .ad b{display:block;font-weight:600}
+.zsatir .ad small{color:var(--soluk);font-size:14px}
+.zsatir .tutar{font-variant-numeric:tabular-nums;font-weight:600}
+.bos{padding:22px 16px;color:var(--soluk);text-align:center;font-size:15px}
+
+/* Gönder çubuğu */
+.cubuk{position:fixed;left:0;right:0;bottom:0;background:color-mix(in srgb,var(--zemin) 88%,transparent);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);border-top:1px solid var(--cizgi);padding:12px 16px calc(12px + env(safe-area-inset-bottom))}
+.cubuk .sar{display:flex;align-items:center;gap:12px;padding:0}
+.cubuk small{flex:1;color:var(--soluk);font-size:14px;line-height:1.3}
+.ana{border:0;border-radius:12px;background:#1F9D55;color:#fff;font-weight:700;padding:14px 20px;font-size:17px;display:flex;align-items:center;gap:8px}
+.ana:disabled{background:var(--cizgi);color:var(--soluk)}
+.ana.mavi{background:var(--mavi)}
+
+/* Alttan açılan pencere */
+dialog{border:0;padding:0;margin:auto auto 0;width:100%;max-width:560px;max-height:92vh;border-radius:18px 18px 0 0;background:var(--kagit);color:var(--murekkep)}
+dialog::backdrop{background:rgba(10,15,20,.45)}
+dialog[open]{animation:cik .22s ease-out}
+@keyframes cik{from{transform:translateY(40px);opacity:.4}}
+@media (prefers-reduced-motion:reduce){dialog[open]{animation:none}}
+.pencere{padding:8px 16px calc(16px + env(safe-area-inset-bottom));overflow:auto;max-height:92vh}
+.tutamak{width:40px;height:5px;border-radius:3px;background:var(--cizgi);margin:0 auto 10px}
+.pbaslik{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.pbaslik h2{margin:0;font-size:21px}
+.kapat{border:0;background:var(--zemin);border-radius:16px;width:32px;height:32px;font-size:18px;line-height:1;color:var(--soluk)}
+.secim{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px}
+.secim label{display:flex;flex-direction:column;align-items:center;gap:6px;padding:16px 8px;border:1px solid var(--cizgi);border-radius:12px;font-weight:600;font-size:15px;background:var(--zemin);text-align:center}
+.secim input{position:absolute;opacity:0;width:1px;height:1px}
+.secim svg{width:28px;height:28px;stroke:var(--mavi);fill:none;stroke-width:1.8}
+.onizleme{margin-bottom:14px;border-radius:10px;overflow:hidden;background:var(--zemin);display:flex;align-items:center;gap:10px}
+.onizleme img{display:block;width:100%;max-height:240px;object-fit:contain;background:#fff}
+.onizleme .pdfad{padding:14px;font-weight:600;word-break:break-all}
+.onizleme button{border:0;background:none;color:var(--mavi);font-weight:600;padding:10px 14px;white-space:nowrap}
+.alan{display:block;margin-bottom:12px}
+.alan span{display:block;font-size:14px;color:var(--soluk);margin-bottom:5px;font-weight:500}
+.alan input,.alan select{width:100%;border:1px solid var(--cizgi);border-radius:10px;background:var(--kagit);padding:12px;font-size:17px;-webkit-appearance:none;appearance:none}
+.alan select{background-image:linear-gradient(45deg,transparent 50%,var(--soluk) 50%),linear-gradient(135deg,var(--soluk) 50%,transparent 50%);background-position:calc(100% - 20px) 52%,calc(100% - 14px) 52%;background-size:6px 6px;background-repeat:no-repeat}
+.iki{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.hata{color:var(--kirmizi);font-size:15px;min-height:1em;margin:0 0 10px}
+.genis{width:100%;justify-content:center}
+.goruntu img{display:block;width:100%;border-radius:10px;background:#fff;margin-bottom:12px}
+.bilgi{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;margin:0 0 16px;font-size:16px}
+.bilgi dt{color:var(--soluk)} .bilgi dd{margin:0;font-weight:600;font-variant-numeric:tabular-nums}
+.sil{border:1px solid var(--kirmizi);color:var(--kirmizi);background:none;border-radius:12px;padding:12px;font-weight:600;width:100%}
+.dosyalar{list-style:none;margin:0 0 16px;padding:0;border:1px solid var(--cizgi);border-radius:10px}
+.dosyalar li{display:flex;justify-content:space-between;gap:10px;padding:11px 14px;border-bottom:1px solid var(--cizgi);font-size:15px}
+.dosyalar li:last-child{border-bottom:0}
+.dosyalar a{color:var(--mavi);font-weight:600;word-break:break-all}
+.dosyalar small{color:var(--soluk);white-space:nowrap}
+.not{color:var(--soluk);font-size:15px;margin:0 0 14px}
+.yukleniyor{padding:30px 0;text-align:center;color:var(--soluk)}
+</style>
+</head>
+<body>
+<div class="sar">
+  <header class="ust">
+    <h1 id="ayAdi">&nbsp;<span class="durum" id="ayDurum"></span></h1>
+    <button class="ok" id="geri" aria-label="Önceki ay">‹</button>
+    <button class="ok" id="ileri" aria-label="Sonraki ay">›</button>
+  </header>
+  <div id="serit"></div>
+  <nav class="sekmeler" role="tablist">
+    <button class="sekme f" role="tab" id="sekmeF" aria-selected="true">Faturalar <span class="say" id="sayF"></span></button>
+    <button class="sekme z" role="tab" id="sekmeZ" aria-selected="false">Z raporları <span class="say" id="sayZ"></span></button>
+  </nav>
+  <main id="klasor" class="klasor f"></main>
+</div>
+
+<div class="cubuk"><div class="sar">
+  <small id="ozet"></small>
+  <button class="ana" id="gonderBtn">Muhasebeye gönder</button>
+</div></div>
+
+<dialog id="ekleP"><form class="pencere" id="ekleForm" method="dialog" novalidate>
+  <div class="tutamak"></div>
+  <div class="pbaslik"><h2 id="ekleBaslik">Fatura ekle</h2><button type="button" class="kapat" data-kapat aria-label="Kapat">✕</button></div>
+  <div class="secim" id="secim">
+    <label><input type="file" accept="image/*" capture="environment" id="kamera">
+      <svg viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>Fotoğraf çek</label>
+    <label><input type="file" accept="image/*,application/pdf" id="dosyaSec">
+      <svg viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4M9 13h6M9 17h6"/></svg>Dosya ya da PDF seç</label>
+  </div>
+  <div class="onizleme" id="onizleme" hidden></div>
+  <label class="alan" id="turAlan"><span>Ne faturası?</span><select id="tur"></select></label>
+  <label class="alan" id="digerAlan" hidden><span>Faturanın adı</span><input id="digerAd" placeholder="Örneğin: Doğalgaz, İnternet" autocomplete="off"></label>
+  <div class="iki">
+    <label class="alan"><span>Tutar (TL)</span><input id="tutar" inputmode="decimal" placeholder="0,00" autocomplete="off"></label>
+    <label class="alan"><span id="tarihEtiket">Fatura tarihi</span><input id="tarih" type="date"></label>
+  </div>
+  <label class="alan"><span>Not (isteğe bağlı)</span><input id="notAlan" autocomplete="off" placeholder="Muhasebeye iletmek istediğiniz bir şey"></label>
+  <p class="hata" id="ekleHata" role="alert"></p>
+  <button class="ana mavi genis" id="kaydet" type="submit">Kaydet</button>
+</form></dialog>
+
+<dialog id="gorP"><div class="pencere">
+  <div class="tutamak"></div>
+  <div class="pbaslik"><h2 id="gorBaslik"></h2><button type="button" class="kapat" data-kapat aria-label="Kapat">✕</button></div>
+  <div class="goruntu" id="gorIcerik"></div>
+  <dl class="bilgi" id="gorBilgi"></dl>
+  <button class="sil" id="silBtn">Bu kaydı sil</button>
+</div></dialog>
+
+<dialog id="gonderP"><div class="pencere">
+  <div class="tutamak"></div>
+  <div class="pbaslik"><h2 id="gonderBaslik">Muhasebeye gönder</h2><button type="button" class="kapat" data-kapat aria-label="Kapat">✕</button></div>
+  <div id="gonderIcerik"></div>
+</div></dialog>
+
+<script src="vendor/jspdf.umd.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
