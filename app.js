@@ -238,8 +238,27 @@ function vergiHtml(kl) {
   return h;
 }
 
+/* Gider türüne göre simge: [renk, svg çizgileri]. Ada göre eşleşir, bulunamazsa fiş simgesi. */
+const SIMGELER = [
+  [/kira/i,                    '#5F74DB', '<path d="M4 9l1.5-5h13L20 9"/><path d="M4 9a2.67 2.67 0 005.33 0 2.67 2.67 0 005.34 0 2.67 2.67 0 005.33 0"/><path d="M5 11.5V20h14v-8.5"/><path d="M10 20v-5h4v5"/>'],
+  [/elektrik/i,                '#C08400', '<path d="M13 2L5 14h6l-1 8 8-12h-6z"/>'],
+  [/^su\b|su fatura/i,         '#1E82C4', '<path d="M12 3c-4 5-6 8-6 11a6 6 0 0012 0c0-3-2-6-6-11z"/>'],
+  [/alarm|güvenlik/i,          '#C0392B', '<path d="M6 16v-5a6 6 0 0112 0v5l2 2H4z"/><path d="M10 21a2 2 0 004 0"/>'],
+  [/doğalgaz|dogalgaz|gaz/i,   '#D2601A', '<path d="M12 3c1 4 5 6 5 11a5 5 0 01-10 0c0-3 2-4 2-7 2 1 3 3 3 3"/>'],
+  [/internet|wifi/i,           '#24907F', '<path d="M2 9a15 15 0 0120 0"/><path d="M5 12.5a10 10 0 0114 0"/><path d="M8.5 16a5 5 0 017 0"/><circle cx="12" cy="19.5" r="1"/>'],
+  [/telefon|turkcell|vodafone|türk telekom|gsm/i, '#7652B3', '<rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/>'],
+];
+const VARSAYILAN_SIMGE = ['#5A6675', '<path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/>'];
+function simge(tur) {
+  const s = SIMGELER.find(([re]) => re.test(tur || ''));
+  const [renk, cizgi] = s ? [s[1], s[2]] : VARSAYILAN_SIMGE;
+  return {renk, svg: `<svg viewBox="0 0 24 24" aria-hidden="true">${cizgi}</svg>`};
+}
+
 function kucukResim(k) {
-  return k.tip === 'application/pdf' ? '<span class="kucuk">PDF</span>' : `<img class="kucuk" src="${k.kucuk}" alt="">`;
+  if (k.tip !== 'application/pdf') return `<img class="kucuk" src="${k.kucuk}" alt="">`;
+  const s = simge(k.klasor === 'z' ? '' : k.tur);
+  return `<span class="kucuk ikonlu" style="--ic:${s.renk}">${s.svg}</span>`;
 }
 
 function faturaHtml(f) {
@@ -256,7 +275,8 @@ function faturaHtml(f) {
       ? `<button class="ekle ikincil" data-gelmedi-geri="${kacis(ad)}">Geri al</button>`
       : (!liste.length ? `<button class="ekle ikincil" data-gelmedi="${kacis(ad)}">Gelmedi</button>` : '') +
         `<button class="ekle" data-ekle="${kacis(ad)}" aria-label="${kacis(ad)} faturası ekle">${liste.length ? '+ Bir tane daha' : '+ Ekle'}</button>`;
-    h += `<div class="satir"><span class="tik${liste.length ? ' var' : gelmedi ? ' yok' : ''}"></span>
+    const s = simge(ad);
+    h += `<div class="satir"><span class="ikon${liste.length ? ' var' : gelmedi ? ' yok' : ''}" style="--ic:${s.renk}">${s.svg}</span>
       <div class="ad"><b>${kacis(ad)}</b>${alt}</div>${dugmeler}</div>`;
     if (liste.length) {
       h += '<div class="kartlar">' + liste.map(k =>
@@ -273,7 +293,7 @@ function zHtml(z) {
   let h = `<button class="zbuyuk" data-ekle="Z raporu">+ Z raporu ekle</button>`;
   if (!z.length) return h + `<p class="bos">Gün sonunda Z raporunun fotoğrafını çekin. Hepsi burada tarih sırasıyla durur.</p>`;
   h += z.map(k => `<button class="zsatir" data-gor="${k.id}">
-      ${k.tip === 'application/pdf' ? '<span class="kucuk">PDF</span>' : `<img class="fis" src="${k.kucuk}" alt="">`}
+      ${k.tip === 'application/pdf' ? kucukResim(k) : `<img class="fis" src="${k.kucuk}" alt="">`}
       <span class="ad"><b>${tarihYazi(k.tarih, true)}</b>${k.not ? `<small>${kacis(k.not)}</small>` : ''}</span>
       <span class="tutar">${k.tutar != null ? para(k.tutar) : ''}</span></button>`).join('');
   h += `<div class="alt"><span>${z.length} Z raporu toplamı</span><b>${para(topla(z))}</b></div>`;
@@ -437,7 +457,7 @@ function gorAc(id) {
   const vergi = takipMi(k.klasor);
   $('#gorBaslik').textContent = k.klasor === 'z' ? 'Z raporu' : k.tur;
   $('#gorIcerik').innerHTML = !k.veri ? '' : k.tip === 'application/pdf'
-    ? `<p><a class="ekle" href="${blobUrl(k)}" target="_blank" rel="noopener">PDF'i aç</a></p>`
+    ? `<p><a class="ekle" href="${blobUrl(k)}" target="_blank" rel="noopener">Belgeyi aç</a></p>`
     : `<img src="${blobUrl(k)}" alt="">`;
   $('#gorBilgi').innerHTML =
     `<dt>Tutar</dt><dd>${k.tutar != null ? para(k.tutar) : 'Girilmedi'}</dd>` +
