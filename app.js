@@ -665,9 +665,11 @@ async function yedekAc() {
     `<p class="not"><b>Son yedek:</b> ${son ? tarihYazi(bugunStrOf(new Date(son))) : 'hiç alınmadı'}</p>` +
     `<div id="yedekAl"><p class="yukleniyor">Yedek hazırlanıyor…</p></div>` +
     `<label class="ana gri genis" style="margin-top:10px"><input type="file" accept=".json,application/json" id="yedekSec" style="position:absolute;opacity:0;width:1px;height:1px">Yedekten geri yükle</label>` +
-    `<p class="hata" id="yedekHata" role="alert"></p>`;
+    `<p class="hata" id="yedekHata" role="alert"></p>` +
+    `<h3 style="margin:18px 0 6px;font-size:18px">Excel listesi</h3><p class="not">Bütün kayıtlar tarih, tür, tutar ve not ile tek tabloda. Sizin içindir; muhasebeye giden belgeler değişmez.</p><div id="excelAl"></div>`;
   $('#yedekSec').addEventListener('change', e => { geriYukle(e.target.files[0]); e.target.value = ''; });
   $('#yedekP').showModal();
+  excelHazirla();
   const alan = $('#yedekAl');
   let y;
   try { y = await yedekDosyasi(); } catch (e) { alan.innerHTML = `<p class="hata">Yedek hazırlanamadı: ${kacis(e.message)}</p>`; return; }
@@ -684,6 +686,26 @@ async function yedekAc() {
     catch (e) { if (e.name !== 'AbortError') $('#yedekHata').textContent = 'Kaydedilemedi: ' + e.message; }
   };
   else $('#yedekIndir').onclick = isaretle;
+}
+let excelUrl = null;
+async function excelHazirla() {
+  const alan = $('#excelAl');
+  let x;
+  try {
+    const tum = await islem('kayit', 'readonly', s => s.getAll());
+    if (!tum.length) { alan.innerHTML = ''; return; }
+    x = excelYap(tum);
+  } catch (e) { alan.innerHTML = `<p class="hata">Excel hazırlanamadı: ${kacis(e.message)}</p>`; return; }
+  if (excelUrl) URL.revokeObjectURL(excelUrl);
+  excelUrl = URL.createObjectURL(x);
+  const paylasilir = !!(navigator.canShare && navigator.canShare({files: [x]}));
+  alan.innerHTML = paylasilir
+    ? '<button class="ana gri genis" id="excelPaylas">Excel olarak gönder / kaydet</button>'
+    : `<a class="ana gri genis" style="text-decoration:none" href="${excelUrl}" download="${kacis(x.name)}">Excel olarak indir</a>`;
+  if (paylasilir) $('#excelPaylas').onclick = async () => {
+    try { await navigator.share({files: [x]}); }
+    catch (e) { if (e.name !== 'AbortError') $('#yedekHata').textContent = 'Gönderilemedi: ' + e.message; }
+  };
 }
 const bugunStrOf = d => `${d.getFullYear()}-${ikiHane(d.getMonth()+1)}-${ikiHane(d.getDate())}`;
 
@@ -712,6 +734,64 @@ async function geriYukle(file) {
   } catch (e) {
     hataP.textContent = 'Geri yüklenemedi: telefonda yer kalmamış olabilir.';
   }
+}
+
+/* ---------- Excel (.xlsx) dışa aktarma ----------
+   Kütüphane yok: sıkıştırmasız zip içine en küçük xlsx parçaları yazılır. Tutarlar VAR (kullanıcının kendisi için). */
+const CRC_TABLO = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+const crc32 = u => { let c = 0xFFFFFFFF; for (let i = 0; i < u.length; i++) c = CRC_TABLO[(c ^ u[i]) & 255] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; };
+function zipYap(dosyalar) {   // [{ad, yazi}] → Blob (yöntem: saklama, sıkıştırma yok)
+  const enc = new TextEncoder(), parca = [], merkez = [];
+  let konum = 0;
+  for (const d of dosyalar) {
+    const ad = enc.encode(d.ad), veri = enc.encode(d.yazi), crc = crc32(veri);
+    const bas = new DataView(new ArrayBuffer(30));
+    [[0,0x04034b50,4],[4,20,2],[6,0x0800,2],[8,0,2],[10,0,2],[12,0x21,2],[14,crc,4],[18,veri.length,4],[22,veri.length,4],[26,ad.length,2],[28,0,2]].forEach(([o,v,n]) => n === 4 ? bas.setUint32(o, v, true) : bas.setUint16(o, v, true));
+    const m = new DataView(new ArrayBuffer(46));
+    [[0,0x02014b50,4],[4,20,2],[6,20,2],[8,0x0800,2],[10,0,2],[12,0,2],[14,0x21,2],[16,crc,4],[20,veri.length,4],[24,veri.length,4],[28,ad.length,2],[30,0,2],[32,0,2],[34,0,2],[36,0,2],[38,0,4],[42,konum,4]].forEach(([o,v,n]) => n === 4 ? m.setUint32(o, v, true) : m.setUint16(o, v, true));
+    parca.push(bas, ad, veri); merkez.push(m, ad);
+    konum += 30 + ad.length + veri.length;
+  }
+  const merkezBoy = merkez.reduce((t, x) => t + x.byteLength, 0);
+  const son = new DataView(new ArrayBuffer(22));
+  [[0,0x06054b50,4],[4,0,2],[6,0,2],[8,dosyalar.length,2],[10,dosyalar.length,2],[12,merkezBoy,4],[16,konum,4],[20,0,2]].forEach(([o,v,n]) => n === 4 ? son.setUint32(o, v, true) : son.setUint16(o, v, true));
+  return new Blob([...parca, ...merkez, son], {type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+}
+const xmlKacis = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])).replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '');
+const KLASOR_AD = {fatura: 'Fatura', z: 'Z raporu', vergi: 'Vergi', serkan: 'Serkan'};
+
+function excelYap(tumKayit) {
+  const sutunHarf = i => String.fromCharCode(65 + i);
+  const tarihSayi = t => (Date.UTC(+t.slice(0,4), +t.slice(5,7)-1, +t.slice(8,10)) - Date.UTC(1899, 11, 30)) / 86400000;
+  const baslik = ['Tarih', 'Ay', 'Klasör', 'Tür', 'Tutar (TL)', 'Durum', 'Not'];
+  const satirlar = tumKayit.slice().sort((a, b) => (a.tarih || '').localeCompare(b.tarih || '')).map(k => [
+    k.tarih ? {s: tarihSayi(k.tarih), st: 2} : '',
+    ayEtiket(k.ay), KLASOR_AD[k.klasor] || k.klasor || '', k.tur || '',
+    typeof k.tutar === 'number' ? {s: k.tutar, st: 3} : '',
+    takipMi(k.klasor) ? (k.odendi ? 'Ödendi' : 'Ödenmedi') : '',
+    k.not || ''
+  ]);
+  const hucre = (v, r, c, st) => {
+    const ref = sutunHarf(c) + r;
+    if (v && typeof v === 'object') return `<c r="${ref}" s="${v.st}"><v>${v.s}</v></c>`;
+    return v === '' ? '' : `<c r="${ref}" t="inlineStr"${st ? ` s="${st}"` : ''}><is><t xml:space="preserve">${xmlKacis(v)}</t></is></c>`;
+  };
+  const son = satirlar.length + 1;
+  const sayfa = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>
+<cols><col min="1" max="1" width="12" customWidth="1"/><col min="2" max="2" width="14" customWidth="1"/><col min="3" max="3" width="11" customWidth="1"/><col min="4" max="4" width="22" customWidth="1"/><col min="5" max="5" width="13" customWidth="1"/><col min="6" max="6" width="11" customWidth="1"/><col min="7" max="7" width="40" customWidth="1"/></cols>
+<sheetData><row r="1">${baslik.map((b, c) => hucre(b, 1, c, 1)).join('')}</row>${satirlar.map((s, i) => `<row r="${i + 2}">${s.map((v, c) => hucre(v, i + 2, c)).join('')}</row>`).join('')}</sheetData>
+<autoFilter ref="A1:G${son}"/></worksheet>`;
+  const dosyalar = [
+    {ad: '[Content_Types].xml', yazi: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>`},
+    {ad: '_rels/.rels', yazi: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`},
+    {ad: 'xl/workbook.xml', yazi: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Kayıtlar" sheetId="1" r:id="rId1"/></sheets><definedNames><definedName name="_xlnm._FilterDatabase" localSheetId="0" hidden="1">'Kayıtlar'!$A$1:$G$${son}</definedName></definedNames></workbook>`},
+    {ad: 'xl/_rels/workbook.xml.rels', yazi: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`},
+    {ad: 'xl/styles.xml', yazi: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="2"><numFmt numFmtId="164" formatCode="dd\\.mm\\.yyyy"/><numFmt numFmtId="165" formatCode="#,##0.00"/></numFmts><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="4"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/><xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="165" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/></cellXfs></styleSheet>`},
+    {ad: 'xl/worksheets/sheet1.xml', yazi: sayfa}
+  ];
+  const d = new Date();
+  return new File([zipYap(dosyalar)], `fatura-defteri-${d.getFullYear()}-${ikiHane(d.getMonth()+1)}-${ikiHane(d.getDate())}.xlsx`, {type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
 }
 
 /* ---------- Ana ekrana ekleme uyarısı ---------- */
