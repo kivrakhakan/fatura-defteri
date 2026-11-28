@@ -628,6 +628,92 @@ async function gonderAc() {
   };
 }
 
+/* ---------- Yedek al / geri yükle ----------
+   Bütün kayıtlar tek .json dosyasına yazılır (belgeler base64). Geri yüklemede hiçbir şey silinmez:
+   yedekteki kayıtlar eklenir, aynı kimlikli olan güncellenir. */
+const YEDEK_BICIM = 'fatura-defteri-yedek';
+const b64Yap = buf => new Promise((ok, hata) => {
+  const r = new FileReader();
+  r.onload = () => ok(r.result.slice(r.result.indexOf(',') + 1));
+  r.onerror = () => hata(r.error);
+  r.readAsDataURL(new Blob([buf]));
+});
+const b64Coz = s => { const b = atob(s), u = new Uint8Array(b.length); for (let i = 0; i < b.length; i++) u[i] = b.charCodeAt(i); return u.buffer; };
+const sonYedekOku = () => { try { return +localStorage.getItem('son-yedek') || 0; } catch (e) { return 0; } };
+
+async function yedekDosyasi() {
+  const tumKayit = await islem('kayit', 'readonly', s => s.getAll());
+  const tumAy = await islem('ay', 'readonly', s => s.getAll());
+  // Büyük tek yazı yerine parça parça: çok fotoğrafta telefonun belleği yetsin
+  const parcalar = [`{"bicim":"${YEDEK_BICIM}","surum":1,"tarih":${Date.now()},"ay":${JSON.stringify(tumAy)},"kayit":[`];
+  for (let i = 0; i < tumKayit.length; i++) {
+    const {_url, veri, ...k} = tumKayit[i];
+    if (veri) k.veri64 = await b64Yap(veri);
+    parcalar.push((i ? ',' : '') + JSON.stringify(k));
+  }
+  parcalar.push(']}');
+  const d = new Date();
+  const ad = `fatura-defteri-yedek-${d.getFullYear()}-${ikiHane(d.getMonth()+1)}-${ikiHane(d.getDate())}.json`;
+  return {dosya: new File(parcalar, ad, {type: 'application/json'}), sayi: tumKayit.length};
+}
+
+let yedekUrl = null;
+async function yedekAc() {
+  const ic = $('#yedekIcerik');
+  const son = sonYedekOku();
+  ic.innerHTML = `<p class="not">Kayıtlarınız yalnızca bu telefonda duruyor. Telefon değişir, kaybolur ya da uygulama silinirse gider. Ayda bir yedek alıp iCloud Drive'a kaydedin ya da WhatsApp'tan kendinize gönderin.</p>` +
+    `<p class="not"><b>Son yedek:</b> ${son ? tarihYazi(bugunStrOf(new Date(son))) : 'hiç alınmadı'}</p>` +
+    `<div id="yedekAl"><p class="yukleniyor">Yedek hazırlanıyor…</p></div>` +
+    `<label class="ana gri genis" style="margin-top:10px"><input type="file" accept=".json,application/json" id="yedekSec" style="position:absolute;opacity:0;width:1px;height:1px">Yedekten geri yükle</label>` +
+    `<p class="hata" id="yedekHata" role="alert"></p>`;
+  $('#yedekSec').addEventListener('change', e => { geriYukle(e.target.files[0]); e.target.value = ''; });
+  $('#yedekP').showModal();
+  const alan = $('#yedekAl');
+  let y;
+  try { y = await yedekDosyasi(); } catch (e) { alan.innerHTML = `<p class="hata">Yedek hazırlanamadı: ${kacis(e.message)}</p>`; return; }
+  if (!y.sayi) { alan.innerHTML = '<p class="not">Henüz kayıt yok, yedeklenecek bir şey yok.</p>'; return; }
+  if (yedekUrl) URL.revokeObjectURL(yedekUrl);
+  yedekUrl = URL.createObjectURL(y.dosya);
+  const paylasilir = !!(navigator.canShare && navigator.canShare({files: [y.dosya]}));
+  const isaretle = () => { try { localStorage.setItem('son-yedek', String(Date.now())); } catch (e) {} };
+  alan.innerHTML = `<p class="not">${y.sayi} kayıt, ${boyutYazi(y.dosya.size)}.</p>` + (paylasilir
+    ? `<button class="ana mavi genis" id="yedekPaylas">Yedeği kaydet</button><p class="not" style="margin-top:8px">Açılan menüde "Dosyalara Kaydet"i (iCloud Drive) ya da WhatsApp'ı seçin.</p>`
+    : `<a class="ana mavi genis" style="text-decoration:none" id="yedekIndir" href="${yedekUrl}" download="${kacis(y.dosya.name)}">Yedeği indir</a>`);
+  if (paylasilir) $('#yedekPaylas').onclick = async () => {
+    try { await navigator.share({files: [y.dosya]}); isaretle(); $('#yedekP').close(); }
+    catch (e) { if (e.name !== 'AbortError') $('#yedekHata').textContent = 'Kaydedilemedi: ' + e.message; }
+  };
+  else $('#yedekIndir').onclick = isaretle;
+}
+const bugunStrOf = d => `${d.getFullYear()}-${ikiHane(d.getMonth()+1)}-${ikiHane(d.getDate())}`;
+
+async function geriYukle(file) {
+  const hataP = $('#yedekHata'); hataP.textContent = '';
+  if (!file) return;
+  let y;
+  try { y = JSON.parse(await file.text()); } catch (e) { hataP.textContent = 'Bu dosya okunamadı. Fatura Defteri yedeği seçtiğinizden emin olun.'; return; }
+  if (!y || y.bicim !== YEDEK_BICIM || !Array.isArray(y.kayit) || !Array.isArray(y.ay)) { hataP.textContent = 'Bu bir Fatura Defteri yedeği değil.'; return; }
+  const kayitlarY = y.kayit.filter(k => k && typeof k.id === 'string' && typeof k.ay === 'string');
+  const tarih = y.tarih ? tarihYazi(bugunStrOf(new Date(y.tarih))) : '?';
+  if (!confirm(`${tarih} tarihli yedekte ${kayitlarY.length} kayıt var.\n\nBu telefona eklensin mi? Telefondaki kayıtlar silinmez; aynı kayıt varsa yedektekiyle değiştirilir.`)) return;
+  try {
+    const hazir = kayitlarY.map(({veri64, ...k}) => ({...k, veri: veri64 ? b64Coz(veri64) : null}));
+    await new Promise((ok, hata) => {
+      const t = db.transaction(['kayit', 'ay'], 'readwrite');
+      hazir.forEach(k => t.objectStore('kayit').put(k));
+      y.ay.filter(b => b && typeof b.ay === 'string').forEach(b => t.objectStore('ay').put(b));
+      t.oncomplete = ok;
+      t.onerror = t.onabort = () => hata(t.error || new Error('Kayıt hatası'));
+    });
+    if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+    $('#yedekP').close();
+    await yenile();
+    alert(`${hazir.length} kayıt geri yüklendi.`);
+  } catch (e) {
+    hataP.textContent = 'Geri yüklenemedi: telefonda yer kalmamış olabilir.';
+  }
+}
+
 /* ---------- Ana ekrana ekleme uyarısı ---------- */
 function seritCiz() {
   const ios = /iPhone|iPad|iPod/.test(navigator.userAgent);
@@ -661,6 +747,7 @@ $('#ekleForm').addEventListener('submit', kaydet);
 $('#silBtn').addEventListener('click', sil);
 $('#duzenleBtn').addEventListener('click', () => { if (gorulen) duzenleAc(gorulen); });
 $('#gonderBtn').addEventListener('click', gonderAc);
+$('#yedekBtn').addEventListener('click', yedekAc);
 $('#geri').addEventListener('click', () => { ay = ayKaydir(ay, -1); yenile(); });
 $('#ileri').addEventListener('click', () => { ay = ayKaydir(ay, 1); yenile(); });
 $('#sekmeF').addEventListener('click', () => { sekme = 'fatura'; ciz(); });
